@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Webcam Face Detection and Upload</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+    <style>
+        /* Basic styles for layout */
+        #instructions, #video, #snap, #uploadCaptured, #imgTable {
+            margin: 10px;
+        }
+        img {
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 5px;
+        }
+        table {
+            width: 100%;
+        }
+        td {
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">Position your face in the frame and click 'Snap Photo'</div>
+    <video id="video" width="720" height="560" autoplay muted></video>
+    <canvas id="canvas" width="720" height="560" style="display:none;"></canvas>
+    <button id="snap">Snap Photo</button>
+    <button id="uploadCaptured">Upload Captured Image</button>
+    <table id="imgTable"></table> <!-- Added table for displaying images -->
+
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const snap = document.getElementById('snap');
+    const uploadCaptured = document.getElementById('uploadCaptured');
+    const imgTable = document.getElementById('imgTable'); // Table where images will be displayed
+    let snapshots = []; // Array to store captured snapshots
+
+    // Start video stream
+    navigator.mediaDevices.getUserMedia({ video: {} })
+        .then(stream => {
+            video.srcObject = stream;
+            video.play();
+        });
+
+    // Load face-api.js models
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('/models')
+    ]).then(() => video.play());
+
+    video.addEventListener('play', async () => {
+        // Create an interval to detect faces periodically
+        setInterval(async () => {
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            // Draw detections on canvas
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+            const resizedDetections = faceapi.resizeResults(detections, { width: video.width, height: video.height });
+            faceapi.draw.drawDetections(canvas, resizedDetections);
+        }, 100); // Runs face detection every 100ms
+    });
+
+    snap.addEventListener("click", function() {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        let dataURL = canvas.toDataURL('image/jpeg');
+        snapshots.push(dataURL); // Store snapshot data URL
+        displaySnapshots(); // Update the table with the new snapshot
+    });
+
+    // Function to convert canvas to Blob
+    function canvasToBlob() {
+        return new Promise(resolve => {
+            canvas.toBlob(blob => {
+                resolve(blob);
+            }, 'image/jpeg');
+        });
+    }
+
+    // Event listener for the 'uploadCaptured' button
+    uploadCaptured.addEventListener('click', async function() {
+        const selectedImg = document.querySelector('input[name="selectedImg"]:checked');
+        if (selectedImg) {
+            const blob = await fetch(selectedImg.value).then(res => res.blob());
+            const formData = new FormData();
+            formData.append('file', blob, 'webcam.jpg'); // Append the Blob as 'file'
+
+            // Call the modified upload function
+            uploadFile(formData);
+        } else {
+            alert('Please select an image to upload.');
+        }
+    });
+
+    function displaySnapshots() {
+        imgTable.innerHTML = ''; // Clear the table first
+        snapshots.forEach((imgSrc, index) => {
+            let row = imgTable.insertRow();
+            let cell = row.insertCell();
+            let img = document.createElement('img');
+            img.src = imgSrc;
+            img.width = 100; // Thumbnail size
+            cell.appendChild(img);
+            let radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'selectedImg';
+            radio.value = imgSrc;
+            if(index === snapshots.length - 1) {
+                radio.checked = true; // Select the most recent snapshot by default
+            }
+            cell.appendChild(radio);
+        });
+    }
+
+    // Modified uploadFile function to accept formData and upload to the specified server
+    function uploadFile(formData) {
+        $.ajax({
+            url: "https://aipy.onrender.com/upload", // Update the URL to the server
+            type: "POST",
+            data: formData,
+            success: function(data) {
+                console.log('Upload successful!');
+                // Handle the success response here
+            },
+            error: function(xhr, status, error) {
+                console.error('Upload failed:', status, error);
+                // Handle the error response here
+            },
+            processData: false,
+            contentType: false,
+        });
+    }
+});
+
+    </script>
+</body>
+</html>
